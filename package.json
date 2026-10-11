@@ -1,0 +1,13 @@
+{
+  "name": "drone-hover-lab",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test.cjs",
+    "benchmark": "node benchmark.cjs --check"
+  }
+}

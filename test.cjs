@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),E=require('./docs/engine.js');let count=0;
+function test(name,f){f();count++;console.log('PASS '+name);}const near=(a,b,t=1e-9)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
+function run(scene,extra={},dt=E.DT){const r=new E.Experiment({scene,...E.presets[scene],...extra},dt);r.finish();return r;}
+test('Balanced hover has zero acceleration',()=>{const d=E.derivative([0,1.5,0,0,0,0],[E.G/2,E.G/2],0,1);d.forEach(v=>near(v,0));});
+test('Zero thrust accelerates downward at g',()=>{near(E.derivative([0,2,0,0,0,0],[0,0],0,1)[3],-E.G);});
+test('Rotor asymmetry produces the expected torque',()=>{const d=E.derivative([0,2,0,0,0,0],[3,5],0,1);near(d[5],E.ARM*2/E.INERTIA);});
+test('Tilt redirects vertical thrust into horizontal motion',()=>{const d=E.derivative([0,2,0,0,.2,0],[5,5],0,1);near(d[2],-10*Math.sin(.2));near(d[3],10*Math.cos(.2)-E.G);});
+test('Mass changes acceleration under identical forces',()=>{const a=E.derivative([0,2,0,0,0,0],[5,5],2,1),b=E.derivative([0,2,0,0,0,0],[5,5],2,2);near(b[2],a[2]/2);near(b[3]+E.G,(a[3]+E.G)/2);});
+test('Command delay starts with balanced prehistory, not future commands',()=>{const r=new E.Experiment({delay:.1});for(let i=0;i<20;i++){r.step();near(r.drones[0].motors[0],E.G/2);}const first=r.drones[0].queue[0];r.step();assert.deepEqual(r.drones[0].motors,first);});
+test('Zero-delay allocation reaches motors immediately',()=>{const r=new E.Experiment();r.step();assert.deepEqual(r.drones[0].command,r.drones[0].motors);});
+test('Thrust allocation remains within rotor limits',()=>{const r=run('delay',{wind:5,delay:.5});assert.ok(r.rows.every(x=>x.applied_left>=0&&x.applied_left<=9&&x.applied_right>=0&&x.applied_right<=9));});
+test('Saturation freezes bounded integrators',()=>{const d=new E.Drone('pid',{delay:0},.005);d.state=[-100,1.5,0,0,0,0];d.integral=[.2,.3];d.control(.005);assert.deepEqual(d.integral,[.2,.3]);});
+test('Ground contact is scored as failure and stops powered flight',()=>{const r=run('delay');assert.ok(r.drones.every(d=>d.crashed));for(const kind of ['pd','pid']){const group=r.rows.filter(x=>x.kind===kind),first=group.findIndex(x=>x.crashed);assert.ok(first>0);assert.ok(group.slice(first+1).every(x=>x.applied_left===0&&x.applied_right===0&&x.z===0));}});
+test('Integral control removes constant wind bias in this model',()=>{const m=run('wind').metrics();assert.ok(m[0].late_rmse>1&&m[1].late_rmse<.01);});
+test('Integral control has a genuine gust counterexample',()=>{const m=run('gust').metrics();assert.ok(m[1].late_rmse>m[0].late_rmse);});
+test('Extra payload is compensated without changing mass estimate',()=>{const m=run('payload').metrics();assert.ok(m[0].late_rmse>.8&&m[1].late_rmse<.01);});
+test('Calm PD returns to the hover point',()=>{assert.ok(run('calm').metrics()[0].late_rmse<1e-5);});
+test('RK4 time refinement gives consistent no-delay metrics',()=>{const a=run('wind'),b=run('wind',{},.0025);a.metrics().forEach((v,i)=>assert.ok(Math.abs(v.rmse-b.metrics()[i].rmse)<.002));});
+test('Deterministic gust reruns have identical raw data',()=>{assert.equal(E.csv(run('gust')),E.csv(run('gust')));});
+test('Invalid model domain is rejected',()=>{assert.throws(()=>new E.Experiment({mass:0}));assert.throws(()=>new E.Experiment({wind:Infinity}));assert.throws(()=>new E.Experiment({delay:-.1}));});
+console.log(`${count} dynamics/control checks passed`);
